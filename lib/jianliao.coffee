@@ -4,47 +4,54 @@ WebHookAdapter = require('./WebHookAdapter')
 class JianLiaoAdapter extends WebHookAdapter
   constructor: ->
     super
-    @nameRegExp = new RegExp("^#{@robot.name}\s+", 'i')
 
-  cleanText: (text = '', directMessage) ->
+  cleanText: (text = '') ->
     text = text.trim()
+    "#{@robot.name} #{text}"
 
-    if directMessage and not text.match(@nameRegExp)
-      text = "#{@robot.name} #{text}"
 
-    text
+  parseChatMessage: (message) ->
+    return unless message?._id and message._creatorId and
+      message._teamId and message.incoming?.url
 
-  parseChatMessage: (incomingMessage) ->
-    text = @cleanText(incomingMessage.body, not incomingMessage.room?)
-    messageId = incomingMessage._id
-
-    new TextMessage(@extractUser(incomingMessage), text, messageId)
-
-  extractUser: (incomingMessage) ->
-    rawUser = incomingMessage.creator
-
+    text = @cleanText message.body
     userInfo =
-      id: rawUser._id
-      name: rawUser.name
+      room: message.room or message.team,
+      creator: message.incoming._id
+      url: message.incoming.url
+      _teamId: message._teamId
 
-    if incomingMessage.room?
-      rawRoom = incomingMessage.room
-      userInfo.room =
-        id: rawRoom._id
-        topic: rawRoom.topic
+    if message.room
+      userInfo._roomId = message._roomId
+      userInfo.mention =
+        _id: message._creatorId
+        name: message.creator.name
+    else
+      userInfo._toId = message._creatorId
 
-    new User(userInfo.id, userInfo)
+    user = new User message._creatorId, userInfo
+
+    new TextMessage(user, text, message._id)
 
   buildChatMessage: (envelope, text) ->
+    return unless envelope?.user
+    user = envelope.user
+
+    @robot.logger.debug 'envelope', user
+
     message =
-     content: text
+      content: text
+      creator: user.creator
+      team: user._teamId
+      displayType: 'markdown'
 
-    if envelope.room?
-      message._roomId = envelope.room.id
+    if user._roomId
+      message._roomId = user._roomId
+      message.mention = user.mention
     else
-      message._toId = envelope.user.id
+      message._toId = user._toId
 
-    message
+    {url: user.url, message: message}
 
 exports.use = (robot) ->
   new JianLiaoAdapter robot
